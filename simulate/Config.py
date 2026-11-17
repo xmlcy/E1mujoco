@@ -10,8 +10,8 @@ class Config:
     dt = 0.002
     decimation = 10
     run_duration = 0xffff  # 单位s
-    num_arm_actions = 10
-    num_leg_actions = 14
+    num_arm_actions = 8
+    num_leg_actions = 13
     gait_frequency = 1.5  # sec
     hands_enable = True
     default_joints = None

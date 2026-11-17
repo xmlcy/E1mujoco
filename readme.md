@@ -61,6 +61,24 @@ python ./test/arm_base_test.py
 ```
 程序会控制机器人位置变化
 
+### 3. Linux 单文件可执行程序
+
+此项目可以打包为一个 Linux x86_64 可执行文件。打包时需要 Python 3.10+、PyInstaller、MuJoCo、gRPC、NumPy、tqdm，以及 DroidUp SDK 提供的 `droidup_api` 和 `droidup_client` wheel。
+
+在已安装这些依赖的 Python 环境中运行：
+
+```bash
+./build-linux.sh
+```
+
+生成的文件位于 `dist/droidup-mujoco`。运行机器无需安装 Python 或 DroidUp SDK；将该文件复制到 Linux x86_64 机器后，执行：
+
+```bash
+./droidup-mujoco
+```
+
+程序默认打开 MuJoCo 窗口，并监听腿部服务 `0.0.0.0:50051` 和手臂服务 `0.0.0.0:50052`。使用 `./droidup-mujoco --help` 查看参数。可执行文件需要在目标机图形会话中运行；Linux 图形驱动和系统 OpenGL/GLFW 运行库仍由操作系统提供。应在目标发行版兼容的 Linux 环境中构建。
+
 
 # 使用
 

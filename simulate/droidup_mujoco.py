@@ -5,10 +5,12 @@ import asyncio
 import logging
 import os
 import signal
+import sys
 import threading
 import time
 from dataclasses import dataclass
 from typing import Dict, List, Sequence
+import mujoco
 
 import grpc
 import numpy as np
@@ -23,6 +25,13 @@ from joint_config_loader import load_joint_config
 
 
 _LOGGER = logging.getLogger("mujoco.grpc")
+
+
+def _application_root() -> str:
+    """Return the project root, or PyInstaller's temporary bundle directory."""
+    if getattr(sys, "frozen", False):
+        return getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 @dataclass
@@ -61,6 +70,25 @@ class RobotSimulation:
         # Override MuJoCo PD parameters with policy configuration
         self._mujoco.model.opt.timestep = float(self.policy_cfg.dt)
         self._mujoco.cfg.default_joints = self.policy_cfg.default_joints.astype(np.float32)
+        # Initialize the robot at its default joint pose so it does not start
+        # sprawled on the ground.  Without this the simulation's qpos[7:] is
+        # all zeros (a fully extended lying pose) and the PD controller cannot
+        # lift the robot up to a standing pose from rest in zero gravity --
+        # the policy must be applied to a robot that is already upright.
+        # We also raise the free-joint base to ``standing_height`` so the
+        # pelvis is not embedded in the ground plane.
+        default_qpos = self.policy_cfg.default_joints.astype(np.float32)
+        # qpos layout: [base_pos(3), base_quat(4), joints(21)].
+        if self._mujoco.data.qpos.shape[0] >= 7 + self._mujoco.num_joint:
+            self._mujoco.data.qpos[0:3] = np.array(
+                [0.0, 0.0, float(self.policy_cfg.standing_height)],
+                dtype=np.float64,
+            )
+            self._mujoco.data.qpos[3:7] = np.array(
+                [1.0, 0.0, 0.0, 0.0], dtype=np.float64
+            )
+            self._mujoco.data.qpos[7:] = default_qpos
+            mujoco.mj_forward(self._mujoco.model, self._mujoco.data)
         self._mujoco.cfg.dof_stiffness = self.policy_cfg.dof_stiffness.astype(np.float32)
         self._mujoco.cfg.dof_damping = self.policy_cfg.dof_damping.astype(np.float32)
         self._mujoco.cfg.effort_limit = self.policy_cfg.effort_limit.astype(np.float32)
@@ -311,8 +339,13 @@ async def _serve_async(args: argparse.Namespace) -> None:
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="MuJoCo gRPC bridge")
-    parser.add_argument("--model", default="assets/droidup/e1/scene.xml", help="Path to MuJoCo XML/scene file")
-    default_joint_cfg = os.path.join(os.path.dirname(__file__), "configs/e1_locomotion.json")
+    app_root = _application_root()
+    parser.add_argument(
+        "--model",
+        default=os.path.join(app_root, "assets/droidup/e1_21dof/scene.xml"),
+        help="Path to MuJoCo XML/scene file",
+    )
+    default_joint_cfg = os.path.join(app_root, "simulate/configs/e1_21dof_full.json")
     parser.add_argument("--joint-cfg", default=default_joint_cfg, help="Path to simplified joint config JSON")
     parser.add_argument("--host", default="0.0.0.0", help="Host/IP to bind gRPC services")
     parser.add_argument("--leg-port", type=int, default=50051, help="Port for leg service")
